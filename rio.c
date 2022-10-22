@@ -4,11 +4,11 @@
 #include <unistd.h>
 
 /* rio_readinitb - associate a descriptor with a read buffer and reset buffer */
-void rio_readinitb(rio_t *rp, int fd)
-{
+void rio_readinitb(rio_t *rp, void *fd, ReadWriter *rw) {
     rp->rio_fd = fd;
     rp->rio_cnt = 0;
     rp->rio_bufptr = rp->rio_buf;
+    rp->rw = rw;
 }
 
 /* rio_read - This is a wrapper for the Unix read() function that
@@ -18,18 +18,16 @@ void rio_readinitb(rio_t *rp, int fd)
  * entry, rio_read() refills the internal buffer via a call to read()
  * if the internal buffer is empty.
  */
-static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n)
-{
+static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n) {
     int cnt;
 
     while (rp->rio_cnt <= 0) { /* refill if buf is empty */
-        rp->rio_cnt = read(rp->rio_fd, rp->rio_buf,
-                           sizeof(rp->rio_buf));
+        rp->rio_cnt = rp->rw->reader(rp->rio_fd, rp->rio_buf,
+                                     sizeof(rp->rio_buf));
         if (rp->rio_cnt < 0) {
             if (errno != EINTR) /* interrupted by sig handler return */
                 return -1;
-        }
-        else if (rp->rio_cnt == 0) /* EOF */
+        } else if (rp->rio_cnt == 0) /* EOF */
             return 0;
         else
             rp->rio_bufptr = rp->rio_buf; /* reset buffer ptr */
@@ -46,8 +44,7 @@ static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n)
 }
 
 /* rio_readlineb - robustly read a text line (buffered) */
-ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
-{
+ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen) {
     int n, rc;
     char c, *bufp = usrbuf;
 
@@ -69,8 +66,7 @@ ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
 }
 
 /* rio_readnb - robustly read n bytes (unbuffered) */
-ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n)
-{
+ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n) {
     size_t nleft = n;
     ssize_t nread;
     char *bufp = usrbuf;
@@ -90,14 +86,13 @@ ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n)
 }
 
 /* rio_readnb - robustly read n bytes (unbuffered) */
-ssize_t rio_readn(int fd, void *usrbuf, size_t n)
-{
+ssize_t rio_readn(ReadWriter *rw, int fd, void *usrbuf, size_t n) {
     size_t nleft = n;
     ssize_t nread;
     char *bufp = usrbuf;
 
     while (nleft > 0) {
-        if ((nread = read(fd, bufp, nleft)) < 0) {
+        if ((nread = rw->reader(fd, bufp, nleft)) < 0) {
             if (errno == EINTR) /* interrupted by sig handler return */
                 nread = 0; /* and call read() again */
             else
@@ -111,14 +106,13 @@ ssize_t rio_readn(int fd, void *usrbuf, size_t n)
 }
 
 /* rio_writen - robustly write n bytes (unbuffered) */
-void rio_writen(int fd, void *usrbuf, size_t n)
-{
+void rio_writen(ReadWriter *rw, void *fd, void *usrbuf, size_t n) {
     size_t nleft = n;
     ssize_t nwritten;
     char *bufp = usrbuf;
 
     while (nleft > 0) {
-        if ((nwritten = write(fd, bufp, nleft)) <= 0) {
+        if ((nwritten = rw->writer(fd, bufp, nleft)) <= 0) {
             if (errno == EINTR) /* interrupted by sig handler return */
                 nwritten = 0; /* and call write() again */
             else

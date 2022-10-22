@@ -1,22 +1,62 @@
+#ifndef HTTPSERVER_RIO_H
+#define HTTPSERVER_RIO_H
+
 #include <sys/types.h>
 #include <stdio.h>
 #include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
 
 #define MAXBUF 8192
 #define MAXLINE 8192
 #define RIO_BUFSIZE 8192
 #define EINTR 4
 
+#ifndef READWRITER
+#define READWRITER
+
+typedef struct read_writer {
+    ssize_t (*reader)(void *fd, void *buf, size_t n);
+
+    ssize_t (*writer)(void *fd, void *buf, size_t n);
+} ReadWriter;
+
+#endif //READWRITER
+
+#ifndef FD_READWRITER
+#define FD_READWRITER
+
+static inline ssize_t fd_reader(void *fd, void *buf, size_t n) {
+    return read((int) fd, buf, n);
+}
+
+static inline ssize_t fd_writer(void *fd, void *buf, size_t n) {
+    return write((int) fd, buf, n);
+}
+
+// The normal unistd read/write
+static ReadWriter fd_rw = {.reader=&fd_reader, .writer=&fd_writer};
+
+// The normal unistd read/write ReadWriter. Ready to use
+#define the_fd_rw (&fd_rw)
+
+#endif //FD_READWRITER
+
 /* Persistent state for the robust I/O (Rio) package */
 typedef struct rio_t {
-    int rio_fd; /* descriptor for this internal buf */
+    void *rio_fd; /* descriptor for this internal buf */
     int rio_cnt; /* unread bytes in internal buf */
     char *rio_bufptr; /* next unread byte in internal buf */
     char rio_buf[RIO_BUFSIZE]; /* internal buffer */
+
+    ReadWriter *rw;
 } rio_t;
 
 /* rio_readinitb - associate a descriptor with a read buffer and reset buffer */
-void rio_readinitb(rio_t *rp, int fd);
+void rio_readinitb(rio_t *rp, void *fd, ReadWriter *rw);
 
 /* rio_read - This is a wrapper for the Unix read() function that
  * transfers min(n, rp->rio_cnt) bytes from an internal buffer to a user
@@ -34,4 +74,9 @@ ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen);
 ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n);
 
 /* rio_writen - robustly write n bytes (unbuffered) */
-void rio_writen(int fd, void *usrbuf, size_t n);
+void rio_writen(ReadWriter *rw, void *fd, void *usrbuf, size_t n);
+
+
+#pragma clang diagnostic pop
+
+#endif //HTTPSERVER_RIO_H

@@ -169,25 +169,25 @@ http_response_free(http_response *res) {
 }
 
 void
-http_response_send(int fd, http_response *res) {
+http_response_send(ReadWriter *rw, void *fd, http_response *res) {
     char buf[MAXLINE];
     char *p, *q;
     int i;
 
     // Send status line
     sprintf(buf, "%s %d %s\r\n", res->version, res->status, res->reason);
-    rio_writen(fd, buf, strlen(buf));
+    rio_writen(rw, fd, buf, strlen(buf));
 
     // Send headers
     for (kv *kv = res->headers->head; kv != NULL; kv = kv->next) {
         sprintf(buf, "%s: %s\r\n", kv->key, kv->value);
-        rio_writen(fd, buf, strlen(buf));
+        rio_writen(rw, fd, buf, strlen(buf));
     }
-    rio_writen(fd, "\r\n", 2);
+    rio_writen(rw, fd, "\r\n", 2);
 
     // Send body
     if (res->body != NULL) {
-        rio_writen(fd, res->body, strlen(res->body));
+        rio_writen(rw, fd, res->body, strlen(res->body));
     }
 }
 
@@ -229,9 +229,8 @@ http_handler_free(http_handler *h) {
 /******************* http_server *******************/
 
 http_server *
-http_server_new(int port) {
+http_server_new() {
     http_server *server = malloc(sizeof(http_server));
-    server->port = port;
     server->head = NULL;
     server->nhandlers = 0;
     return server;
@@ -281,15 +280,95 @@ http_server_find_handler(http_server *server, char *uri) {
     return NULL;
 }
 
+typedef struct inner_http_ctx_t {
+    void *rfd, *wfd;
+    ReadWriter *rw;
+    tls_config *tls;
+} inner_http_ctx_t;
+
+
+// Handle a single HTTP request
+// rfd, wfd: the read channel and the write channel,
+// which can be set independently. Common to be the same one
+void
+http_server_serve_http(http_server *server, inner_http_ctx_t *c) {
+    http_request *req = http_request_new();
+    http_response *res = http_response_new();
+
+    rio_t rio;
+    rio_readinitb(&rio, c->rfd, c->rw);
+
+    http_request_read(&rio, req);
+
+    // Find handler
+    http_handler *h = http_server_find_handler(server, req->uri);
+    if (h != NULL) {
+        h->handler(req, res);
+    } else {
+        http_handler_404(req, res);
+    }
+
+    http_response_send(c->rw, c->wfd, res);
+
+    http_request_free(req);
+    http_response_free(res);
+}
+
+// Handle a single HTTPS request
+void
+http_server_serve_https(http_server *server, inner_http_ctx_t *c) {
+    SSL_CTX *ctx = create_context();
+    configure_context(ctx, c->tls->certificate_file, c->tls->private_key_file);
+
+    SSL *ssl = SSL_new(ctx);
+
+    // SSL_set_fd(ssl, fd);
+    SSL_set_rfd(ssl, c->rfd);
+    SSL_set_wfd(ssl, c->wfd);
+
+    if (SSL_accept(ssl) <= 0) {
+        ERR_print_errors_fp(stderr);
+    } else {
+        // client could close the connection before we go:
+        // e.g. curl failed to verify the legitimacy of the server and therefore could not establish a secure connection to it.
+        // So we checked it.
+
+        // rewrite context
+        c->rfd = c->wfd = ssl;
+        c->rw = the_ssl_rw;
+
+        http_server_serve_http(server, c);
+    }
+
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+}
+
+// MUX: HTTP or HTTPS
+void
+http_server_serve(http_server *server, int fd, tls_config *tls_config) {
+    inner_http_ctx_t c = {
+            .rfd=fd,
+            .wfd=fd,
+            .tls=tls_config,
+            .rw=the_fd_rw,
+    };
+
+    if (tls_config != NULL) {
+        http_server_serve_https(server, &c);
+    } else {
+        http_server_serve_http(server, &c);
+    }
+}
+
 // Start the server
 void
-http_server_start(http_server *server) {
+http_server_start(http_server *server, int port, tls_config *tls_config) {
     int listenfd, connfd;
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
-    char client_hostname[MAXLINE], client_port[MAXLINE];
 
-    listenfd = open_listenfd(server->port);
+    listenfd = open_listenfd(port);
     while (1) {
         clientlen = sizeof(struct sockaddr_storage);
         connfd = accept(listenfd, (SA *) &clientaddr, &clientlen);
@@ -303,35 +382,10 @@ http_server_start(http_server *server) {
         }
         close(connfd);
 #else
-        http_server_serve(server, connfd);
+        http_server_serve(server, connfd, tls_config);
         close(connfd);
 #endif
     }
-}
-
-// Handle a single HTTP request
-void
-http_server_serve(http_server *server, int fd) {
-    http_request *req = http_request_new();
-    http_response *res = http_response_new();
-
-    rio_t rio;
-    rio_readinitb(&rio, fd);
-
-    http_request_read(&rio, req);
-
-    // Find handler
-    http_handler *h = http_server_find_handler(server, req->uri);
-    if (h != NULL) {
-        h->handler(req, res);
-    } else {
-        http_handler_404(req, res);
-    }
-
-    http_response_send(fd, res);
-
-    http_request_free(req);
-    http_response_free(res);
 }
 
 /******************* handlers *******************/

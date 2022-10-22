@@ -1,6 +1,7 @@
 #include "in.h"
 #include "kv.h"
 #include "rio.h"
+#include "tls.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -9,6 +10,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 // Uncomment this line to enable multiprocess
 // #define MULTIPROCS 1
@@ -77,7 +81,7 @@ void
 http_response_free(http_response *res);
 
 void
-http_response_send(int fd, http_response *res);
+http_response_send(ReadWriter *rw, void *fd, http_response *res);
 
 // http_response_ok writes status line: HTTP/1.0 200 OK
 void
@@ -114,13 +118,17 @@ http_handler_free(http_handler *h);
 
 // Struct for HTTP server
 typedef struct http_server {
-    int port;
     http_handler *head;
     int nhandlers;
 } http_server;
 
+typedef struct tls_config {
+    char *certificate_file;
+    char *private_key_file;
+} tls_config;
+
 http_server *
-http_server_new(int port);
+http_server_new();
 
 void
 http_server_free(http_server *server);
@@ -134,13 +142,9 @@ http_server_add_handler(http_server *server, http_handler *h);
 http_handler *
 http_server_find_handler(http_server *server, char *uri);
 
-// Start the server
+// Start the server on port. HTTPS if tls_config is not NULL.
 void
-http_server_start(http_server *server);
-
-// Handle a single HTTP request
-void
-http_server_serve(http_server *server, int fd);
+http_server_start(http_server *server, int port, tls_config *tls_config);
 
 /******************* handlers *******************/
 
