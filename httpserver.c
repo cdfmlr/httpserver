@@ -1,4 +1,6 @@
 #include "httpserver.h"
+
+#include <time.h>
 // #include "kv.h"
 
 /******************* http_request *******************/
@@ -286,7 +288,6 @@ typedef struct inner_http_ctx_t {
     tls_config *tls;
 } inner_http_ctx_t;
 
-
 // Handle a single HTTP request
 // rfd, wfd: the read channel and the write channel,
 // which can be set independently. Common to be the same one
@@ -309,6 +310,15 @@ http_server_serve_http(http_server *server, inner_http_ctx_t *c) {
     }
 
     http_response_send(c->rw, c->wfd, res);
+
+    time_t rawtime;
+    struct tm *timeinfo;
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    char *time_str = asctime(timeinfo);
+    time_str[strlen(time_str)-1] = '\0';
+
+    printf("%s: %s %s -> [%d]\n", time_str, req->method, req->uri, res->status);
 
     http_request_free(req);
     http_response_free(res);
@@ -426,6 +436,28 @@ http_handler_404(http_request *req, http_response *res) {
     http_response_text_body(res, "404 Not Found");
 }
 
+// 301 moved permanently: HTTP -> HTTPS
+void
+http_handler_redirect_https(http_request *req, http_response *res) {
+    strcpy(res->version, req->version);
+    res->status = 301;
+    strcpy(res->reason, "Moved Permanently");
+
+    // Location: "https://" + host + path
+
+    char *host = kvs_get(req->headers, "Host") + 1; // skip leading space
+    char *path = req->uri;
+
+    size_t len = strlen(host) + strlen(path) + 8;
+    char *s = malloc(len);
+
+    sprintf(s, "https://%s%s", host, path);
+
+    kvs_set(res->headers, "Location", s);
+
+    free(s);  // kvs_set makes a copy
+}
+
 // static file handler func
 void
 _http_handler_static(char *base_dir,
@@ -438,6 +470,8 @@ _http_handler_static(char *base_dir,
     struct stat sbuf;
 
     sprintf(path, "%s/%s", base_dir, req->uri + strlen(uri_prefix));
+    printf("_http_handler_static: path=%s\n", path);
+
     if (stat(path, &sbuf) < 0) {
         http_handler_404(req, res);
         return;

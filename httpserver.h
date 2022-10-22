@@ -161,6 +161,12 @@ http_handler_404(http_request *req, http_response *res);
 
 #define http_handler_404_new(prefix) http_handler_new(prefix, http_handler_404)
 
+// 301 moved permanently: HTTP -> HTTPS
+void
+http_handler_redirect_https(http_request *req, http_response *res);
+
+#define http_handler_redirect_https_new(prefix) http_handler_new(prefix, http_handler_redirect_https)
+
 // static file handler func
 void
 _http_handler_static(char *base_dir,
