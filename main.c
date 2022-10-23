@@ -19,7 +19,6 @@ exp5() {
                             http_handler_redirect_https_new("/"));
 
     if (!fork()) {
-        return;
         http_server_start(http_to_https, 80, NULL);
     }
 
@@ -35,13 +34,31 @@ exp5() {
             .private_key_file=TLS_PKEY_FILE,
     };
 
-    // http_server_start(server, 4432, &tls);
-    http_server_start(server, 4433, NULL);
+     http_server_start(server, 443, &tls);
+
+     // TODO: ranged video: failed to work in HTTPS.
 }
+
+void
+video() {
+    http_server *server = http_server_new();
+
+    http_server_add_handler(server,
+                            http_handler_static_new("/", root_file_handler));
+
+    tls_config tls = {
+            .certificate_file=TLS_CERT_FILE,
+            .private_key_file=TLS_PKEY_FILE,
+    };
+
+    http_server_start(server, 80, NULL);
+}
+
 
 int
 main() {
-    exp5();
+    // exp5();
+    video();
     return 0;
 
     http_server *server = http_server_new();

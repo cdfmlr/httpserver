@@ -1,7 +1,6 @@
 #include "httpserver.h"
 
 #include <time.h>
-// #include "kv.h"
 
 /******************* http_request *******************/
 
@@ -28,6 +27,11 @@ http_request_free(http_request *req) {
     free(req);
 }
 
+// helper for http_request_read:
+//
+// copy a str char-by-char
+// from buffer (char *buf) to dst (another char *)
+// until meeting some char (char until).
 #define parse_and_copy_str(buf, dst, until) { \
     while (*(buf) != (until)) {               \
         *(dst)++ = *(buf)++;                  \
@@ -37,7 +41,7 @@ http_request_free(http_request *req) {
 }
 
 /*
- * Parse HTTP request from client
+ * Parse HTTP request from client... I hope it works.
  * MAGIC! DO NOT TOUCH!
  */
 void
@@ -52,29 +56,14 @@ http_request_read(rio_t *rp, http_request *req) {
 
     // method
     char *q = req->method;
-    // while (*p != ' ') {
-    //    *q++ = *p++;
-    // }
-    // *q = '\0';
-    // p++;
     parse_and_copy_str(p, q, ' ');
 
     // uri
     q = req->uri;
-    // while (*p != ' ') {
-    //    *q++ = *p++;
-    // }
-    // *q = '\0';
-    // p++;
     parse_and_copy_str(p, q, ' ');
 
     // version
     q = req->version;
-    //    while (*p != '\r') {
-    //        *q++ = *p++;
-    //    }
-    //    *q = '\0';
-    //    p += 2;
     parse_and_copy_str(p, q, '\r');
     p++;
 
@@ -111,36 +100,6 @@ http_request_read(rio_t *rp, http_request *req) {
         // add header to headers kvs
         kvs_set(req->headers, key, value);
     }
-
-    // // Parse queries
-    // p = req->uri;
-    // while (*p != '\0') {
-    //     if (*p == '?') {
-    //         *p = '\0';
-    //         p++;
-    //         break;
-    //     }
-    //     p++;
-    // }
-    // while (*p != '\0') {
-    //     q = p;
-    //     while (*q != '\0' && *q != '&') {
-    //         q++;
-    //     }
-    //     if (*q == '&') {
-    //         *q = '\0';
-    //         q++;
-    //     }
-    //     i = 0;
-    //     while (p[i] != '\0' && p[i] != '=') {
-    //         i++;
-    //     }
-    //     if (p[i] == '=') {
-    //         p[i] = '\0';
-    //         kvs_set(req->queries, p, p + i + 1);
-    //     }
-    //     p = q;
-    // }
 
     // Parse body
     p = kvs_get(req->headers, "Content-Length");
@@ -309,10 +268,28 @@ typedef struct inner_http_ctx_t {
     tls_config *tls;
 } inner_http_ctx_t;
 
-// Handle a single HTTP request
+// (private) get current time in str
+static inline char *current_time() {
+    time_t rawtime;
+    struct tm *timeinfo;
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    char *time_str = asctime(timeinfo);
+    time_str[strlen(time_str) - 1] = '\0';
+    return time_str;
+}
+
+// (private) prints a log for a http request/response
+// It is a part of http_server_serve_http.
+// We do not support middlewares (这个也简单，但暂时懒得写). TODO: middlewares
+static inline void log_http(http_request *req, http_response *res) {
+    printf("%s: %s %s -> [%d]\n", current_time(), req->method, req->uri, res->status);
+}
+
+// (private) Handle a single HTTP request
 // rfd, wfd: the read channel and the write channel,
 // which can be set independently. Common to be the same one
-void
+static void
 http_server_serve_http(http_server *server, inner_http_ctx_t *c) {
     http_request *req = http_request_new();
     http_response *res = http_response_new();
@@ -332,21 +309,14 @@ http_server_serve_http(http_server *server, inner_http_ctx_t *c) {
 
     http_response_send(c->rw, c->wfd, res);
 
-    time_t rawtime;
-    struct tm *timeinfo;
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-    char *time_str = asctime(timeinfo);
-    time_str[strlen(time_str) - 1] = '\0';
-
-    printf("%s: %s %s -> [%d]\n", time_str, req->method, req->uri, res->status);
+    log_http(req, res);
 
     http_request_free(req);
     http_response_free(res);
 }
 
-// Handle a single HTTPS request
-void
+// (private) Handle a single HTTPS request
+static void
 http_server_serve_https(http_server *server, inner_http_ctx_t *c) {
     SSL_CTX *ctx = create_context();
     configure_context(ctx, c->tls->certificate_file, c->tls->private_key_file);
@@ -360,9 +330,10 @@ http_server_serve_https(http_server *server, inner_http_ctx_t *c) {
     if (SSL_accept(ssl) <= 0) {
         ERR_print_errors_fp(stderr);
     } else {
+        // TODO: connection checking
         // client could close the connection before we go:
-        // e.g. curl failed to verify the legitimacy of the server and therefore could not establish a secure connection to it.
-        // So we checked it.
+        //   curl failed to verify the legitimacy of the server
+        //   and therefore could not establish a secure connection to it.
 
         // rewrite context
         c->rfd = c->wfd = ssl;
@@ -375,8 +346,8 @@ http_server_serve_https(http_server *server, inner_http_ctx_t *c) {
     SSL_free(ssl);
 }
 
-// MUX: HTTP or HTTPS
-void
+// (private) MUX: HTTP or HTTPS
+static void
 http_server_serve(http_server *server, int fd, tls_config *tls_config) {
     inner_http_ctx_t c = {
             .rfd=fd,
@@ -427,17 +398,6 @@ http_server_start(http_server *server, int port, tls_config *tls_config) {
 // A simple handler func that returns the request URI
 void
 http_handler_echo(http_request *req, http_response *res) {
-    //    res->version = "HTTP/1.0";
-    //    res->status = 200;
-    //    res->reason = "OK";
-    //
-    //    kvs_set(res->headers, "Content-Type", "text/plain");
-    //    char l[32];
-    //    sprintf(l, "%lu", strlen(req->uri));
-    //    kvs_set(res->headers, "Context-Length", l);
-    //
-    //    res->body = malloc(strlen(req->uri) + 1);
-    //    strcpy(res->body, req->uri);
     http_response_ok(res);
     http_response_text_body(res, req->uri);
 }
@@ -449,14 +409,6 @@ http_handler_404(http_request *req, http_response *res) {
     res->status = 404;
     strcpy(res->reason, "Not Found");
 
-    //    kvs_set(res->headers, "Content-Type", "text/plain");
-    //    char *s = "404 Not Found";
-    //    res->body = malloc(strlen(s) + 1);
-    //    strcpy(res->body, s);
-    //
-    //    char l[32];
-    //    sprintf(l, "%lu", strlen(req->uri));
-    //    kvs_set(res->headers, "Context-Length", l);
     http_response_text_body(res, "404 Not Found");
 }
 
@@ -571,7 +523,7 @@ _http_handler_static(char *base_dir,
     kvs_set(res->headers, "Content-Length", content_len);
 }
 
-// Get the mime type of a file.
+// Get the mime type of file.
 // Return a static string to avoid memory leak
 char *
 mime_type(char *filename) {
@@ -603,141 +555,3 @@ mime_type(char *filename) {
         return "text/plain";
     }
 }
-
-/******************* legacy code *******************/
-
-// The following code is from the book. TO BE REMOVED.
-
-#ifdef LEGACY
-
-// TODO: listen on :80 and :443 and redirect http to https
-// TODO: add support for https (openssl)
-int
-old_main(int argc, char** argv)
-{
-    int listenfd, connfd, port, clientlen;
-    struct sockaddr_in clientaddr;
-    char hostname[MAXLINE], portnum[MAXLINE];
-
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <port>\n", argv[0]);
-        exit(1);
-    }
-    port = atoi(argv[1]);
-
-    listenfd = open_listenfd(port);
-    if (listenfd < 0) {
-        fprintf(stderr, "open_listenfd error: %s\n", strerror(errno));
-        exit(1);
-    }
-
-    while (1) {
-        clientlen = sizeof(clientaddr);
-
-        connfd = accept(listenfd, (SA*)&clientaddr, &clientlen);
-        if (connfd < 0) {
-            fprintf(stderr, "accept error: %s (%d)\n", strerror(errno), errno);
-        }
-
-#ifdef MULTIPROCS
-        if (fork() == 0) {
-            close(listenfd);
-            doit(connfd);
-            close(connfd);
-            exit(0);
-        } else {
-            close(connfd);
-        }
-#else
-        doit(connfd);
-        close(connfd);
-#endif
-    }
-
-    return 0;
-}
-
-/* serve_static - copy a file back to the client */
-void
-serve_static(int fd, char* filename, int filesize)
-{
-    int srcfd;
-    char *srcp, filetype[MAXLINE], buf[MAXBUF];
-
-    // Send response headers to client
-    get_filetype(filename, filetype);
-    sprintf(buf, "HTTP/1.0 200 OK\r\n");
-    sprintf(buf, "%sConnection: close\r\n", buf);
-    sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
-    sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
-    rio_writen(fd, buf, strlen(buf));
-
-    // Send response body to client
-    srcfd = open(filename, O_RDONLY, 0);
-
-    // help: man 2 mmap
-    srcp = mmap(
-      0, filesize /* len */, PROT_READ, MAP_PRIVATE, srcfd, 0 /* offset */);
-    close(srcfd);
-    rio_writen(fd, srcp, filesize);
-    munmap(srcp, filesize);
-}
-
-/* et_filetype - derive file type from file name */
-void
-get_filetype(char* filename, char* filetype)
-{
-    if (strstr(filename, ".html"))
-        strcpy(filetype, "text/html");
-    else if (strstr(filename, ".gif"))
-        strcpy(filetype, "image/gif");
-    else if (strstr(filename, ".png"))
-        strcpy(filetype, "image/png");
-    else if (strstr(filename, ".jpg"))
-        strcpy(filetype, "image/jpeg");
-    else
-        strcpy(filetype, "text/plain");
-}
-
-/* serve_dynamic - run a CGI program on behalf of the client */
-void
-serve_dynamic(int fd, char* filename, char* cgiargs)
-{
-    char buf[MAXLINE], *emptylist[] = { NULL };
-
-    // Return first part of HTTP response
-    sprintf(buf, "HTTP/1.0 200 OK\r\n");
-    rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Server: Tiny Web Server\r\n");
-    rio_writen(fd, buf, strlen(buf));
-
-    if (fork() == 0) { // Child
-        // Real server would set all CGI vars here
-        setenv("QUERY_STRING", cgiargs, 1);
-        dup2(fd, STDOUT_FILENO);              // Redirect stdout to client
-        execve(filename, emptylist, environ); // Run CGI program
-    }
-    wait(NULL); // Parent waits for and reaps child
-}
-
-/* clienterror - returns an error message to the client */
-void
-clienterror(int fd, char* cause, char* errnum, char* shortmsg, char* longmsg)
-{
-    char buf[MAXLINE], body[MAXBUF];
-
-    // Build the HTTP response body
-    sprintf(body, "%s<h1>%s: %s</h1>\r\n", body, errnum, shortmsg);
-    sprintf(body, "%s%s: %s\r\n", body, longmsg, cause);
-
-    // Print the HTTP response
-    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-    rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-type: text/html\r\n");
-    rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-    rio_writen(fd, buf, strlen(buf));
-    rio_writen(fd, body, strlen(body));
-}
-
-#endif

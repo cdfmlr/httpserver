@@ -1,3 +1,30 @@
+/*
+ * httpserver: A simple (toy) web framework.
+ *
+ * By: CDFMLR 2022
+ *
+ * Features:
+ * - HTTP/HTTPS supports
+ * - structured Request & Response
+ * - custom handler function
+ * - static file service
+ * - CGI (WIP)
+ *
+ * How it works:
+ *
+ *                                       -> http_request  ->
+ * socket <-> (OpenSSL) <->  http_server                     http_handler
+ *                                       <- http_response <-
+ *
+ * | in.h  |    tls.h    |               httpserver.h                     |
+ * |      rio.h         <->                                               |
+ *
+ *
+ */
+
+#ifndef HTTPSERVER_HTTPSERVER_H
+#define HTTPSERVER_HTTPSERVER_H
+
 #include "in.h"
 #include "kv.h"
 #include "rio.h"
@@ -194,11 +221,14 @@ _http_handler_static(char *base_dir,
 #define http_handler_static_new(prefix, func_name)                    \
     http_handler_new(prefix, http_handler_static_func(func_name))
 
-// TODO: CGI handler func
+// TODO: CGI handler func!
+//       supporting cgi could be fun.
 
-// Get the mime type of a file.
+// Get the mime type of file.
 // Return a static string to avoid memory leak
 char *
 mime_type(char *filename);
 
 extern char **environ; /* Defined by libc */
+
+#endif //HTTPSERVER_HTTPSERVER_H

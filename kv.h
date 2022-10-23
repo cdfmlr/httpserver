@@ -16,7 +16,7 @@ typedef struct kv {
     char *key;
     char *value;
 
-    // memory management flags: key_allocated, value_allocated
+    // memory management flags: 最低位: key_allocated, 次低位: value_allocated
     char mm;
 
     struct kv *next;

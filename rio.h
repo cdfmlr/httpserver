@@ -1,3 +1,16 @@
+/*
+ * rio: The Robust I/O Lib
+ *
+ * from: CS:APP2e (http://csapp.cs.cmu.edu/2e/home.html)
+ * by:   Randal E. Bryant and David R. O'Hallaron, Carnegie Mellon University
+ *
+ * modified: CDFMLR 2022-10-18:
+ *
+ *   Add a concept called ReadWriter,
+ *   to make it working with different I/O (the unix file, Open SSL, ...)
+ *
+ */
+
 #ifndef HTTPSERVER_RIO_H
 #define HTTPSERVER_RIO_H
 

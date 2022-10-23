@@ -1,6 +1,12 @@
-//
-// Created by c on 2022/10/18.
-//
+/*
+ * This module helps create & configure the OpenSSL context.
+ * And offers a ReadWriter ssl_rw to read/write with ssl.
+ *
+ * reference: Simple TLS Server
+ *            https://wiki.openssl.org/index.php/Simple_TLS_Server
+ *
+ * modified:  CDFMLR 2022-10-18
+ */
 
 #ifndef HTTPSERVER_TLS_H
 #define HTTPSERVER_TLS_H
