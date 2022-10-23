@@ -57,7 +57,7 @@ typedef struct http_response {
     char reason[MAXREASON];
 
     kvs *headers;
-    char *body;
+    void *body;
 
     // For the fact that there are 3 kinds of body:
     //

@@ -9,9 +9,12 @@
 // buf_chars is the buffer size for reading the request in bytes
 http_request *
 http_request_new() {
-    http_request *req = malloc(sizeof(http_request));
+    http_request *req = calloc(1, sizeof(http_request));
+    // 借用 calloc 的 zero-filled 特性，避免 malloc 给的一些奇怪的未初始化内存带来的问题。
+
     req->headers = kvs_new();
     // req->queries = kvs_new();
+    req->body = NULL;
     return req;
 }
 
@@ -39,7 +42,7 @@ http_request_free(http_request *req) {
  */
 void
 http_request_read(rio_t *rp, http_request *req) {
-    char *buf = malloc(MAXLINE);
+    char *buf = calloc(MAXLINE, sizeof(char));
     int i = 0;
 
     // Parse request line: GET /path HTTP/1.1
@@ -100,6 +103,11 @@ http_request_read(rio_t *rp, http_request *req) {
         *p = '\0';
         p += 2; // skip \r\n
 
+        // skip leading space
+        while (*value == ' ') {
+            value++;
+        }
+
         // add header to headers kvs
         kvs_set(req->headers, key, value);
     }
@@ -138,6 +146,9 @@ http_request_read(rio_t *rp, http_request *req) {
     p = kvs_get(req->headers, "Content-Length");
     if (p != NULL) {
         int len = atoi(p);
+        if (len <= 0) {
+            return;
+        }
         req->body = malloc(len + 1);
         rio_readnb(rp, req->body, len);
         req->body[len] = '\0';
@@ -148,7 +159,7 @@ http_request_read(rio_t *rp, http_request *req) {
 
 http_response *
 http_response_new() {
-    http_response *res = malloc(sizeof(http_response));
+    http_response *res = calloc(1, sizeof(http_response));
     res->headers = kvs_new();
     res->body = NULL;
     res->body_munmap_len = -1;
@@ -180,16 +191,26 @@ http_response_send(ReadWriter *rw, void *fd, http_response *res) {
     sprintf(buf, "%s %d %s\r\n", res->version, res->status, res->reason);
     rio_writen(rw, fd, buf, strlen(buf));
 
+    // the length of body
+    size_t body_len = res->body_munmap_len;
+
     // Send headers
     for (kv *kv = res->headers->head; kv != NULL; kv = kv->next) {
+        if (strcmp(kv->key, "Content-Length") == 0) {
+            body_len = atoi(kv->value);
+        }
         sprintf(buf, "%s: %s\r\n", kv->key, kv->value);
         rio_writen(rw, fd, buf, strlen(buf));
     }
     rio_writen(rw, fd, "\r\n", 2);
 
+    if (body_len < 0) {
+        body_len = strlen(res->body);
+    }
+
     // Send body
     if (res->body != NULL) {
-        rio_writen(rw, fd, res->body, strlen(res->body));
+        rio_writen(rw, fd, res->body, body_len);
     }
 }
 
@@ -316,7 +337,7 @@ http_server_serve_http(http_server *server, inner_http_ctx_t *c) {
     time(&rawtime);
     timeinfo = localtime(&rawtime);
     char *time_str = asctime(timeinfo);
-    time_str[strlen(time_str)-1] = '\0';
+    time_str[strlen(time_str) - 1] = '\0';
 
     printf("%s: %s %s -> [%d]\n", time_str, req->method, req->uri, res->status);
 
@@ -382,6 +403,9 @@ http_server_start(http_server *server, int port, tls_config *tls_config) {
     while (1) {
         clientlen = sizeof(struct sockaddr_storage);
         connfd = accept(listenfd, (SA *) &clientaddr, &clientlen);
+        if (connfd < 0) {
+            continue;
+        }
 
 #ifdef MULTIPROCS
         if (fork() == 0) {
@@ -445,7 +469,7 @@ http_handler_redirect_https(http_request *req, http_response *res) {
 
     // Location: "https://" + host + path
 
-    char *host = kvs_get(req->headers, "Host") + 1; // skip leading space
+    char *host = kvs_get(req->headers, "Host");
     char *path = req->uri;
 
     size_t len = strlen(host) + strlen(path) + 8;
@@ -513,8 +537,14 @@ _http_handler_static(char *base_dir,
     }
 
     int fd = open(path, O_RDONLY, 0);
+
+    void *srcp = mmap(0, len, PROT_READ, MAP_PRIVATE, fd, start_off);
+
     // NOTE! use munmap to free mmap
-    char *srcp = (char *) mmap(0, len, PROT_READ, MAP_PRIVATE, fd, start_off);
+    res->body_munmap_len = len;
+
+    res->body = srcp;
+
     close(fd);
 
     if (range_flag) {
@@ -539,8 +569,6 @@ _http_handler_static(char *base_dir,
     char content_len[20];
     sprintf(content_len, "%ld", len);
     kvs_set(res->headers, "Content-Length", content_len);
-
-    res->body = srcp;
 }
 
 // Get the mime type of a file.

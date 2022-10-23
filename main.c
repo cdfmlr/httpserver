@@ -3,7 +3,7 @@
 
 http_handler_static_func_new(file, "/Users/c/Learning/ucas2022fall/cn/httpserver/", "/static/");
 
-http_handler_static_func_new(root_file_handler, "/Users/c/Learning/ucas2022fall/cn/httpserver", "/");
+http_handler_static_func_new(root_file_handler, "/Users/c/Learning/ucas2022fall/cn/all-exps/05-http_server", "/");
 
 
 #define TLS_CERT_FILE "/Users/c/Learning/ucas2022fall/cn/all-exps/05-http_server/keys/cnlab.cert"
@@ -18,7 +18,8 @@ exp5() {
     http_server_add_handler(http_to_https,
                             http_handler_redirect_https_new("/"));
 
-    if (fork()) {
+    if (!fork()) {
+        return;
         http_server_start(http_to_https, 80, NULL);
     }
 
@@ -34,7 +35,8 @@ exp5() {
             .private_key_file=TLS_PKEY_FILE,
     };
 
-    http_server_start(server, 443, &tls);
+    // http_server_start(server, 4432, &tls);
+    http_server_start(server, 4433, NULL);
 }
 
 int
