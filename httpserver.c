@@ -185,7 +185,7 @@ http_response_text_body(http_response *res, char *body) {
     kvs_set(res->headers, "Content-Type", "text/plain");
     char l[32];
     sprintf(l, "%lu", strlen(body));
-    kvs_set(res->headers, "Context-Length", l);
+    kvs_set(res->headers, "Content-Length", l);
 
     res->body = malloc(strlen(body) + 1);
     strcpy(res->body, body);
