@@ -190,3 +190,8 @@ Mkfile.old
 dkms.conf
 
 .idea
+build
+
+bufio.c
+bufio.h
+Makefile.bak

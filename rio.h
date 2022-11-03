@@ -65,7 +65,7 @@ typedef struct rio_t {
     char *rio_bufptr; /* next unread byte in internal buf */
     char rio_buf[RIO_BUFSIZE]; /* internal buffer */
 
-    ReadWriter *rw;
+    ReadWriter *rw;   /* r/w interface */
 } rio_t;
 
 /* rio_readinitb - associate a descriptor with a read buffer and reset buffer */

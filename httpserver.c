@@ -381,7 +381,7 @@ http_server_start(http_server *server, int port, tls_config *tls_config) {
 #ifdef MULTIPROCS
         if (fork() == 0) {
             close(listenfd);
-            http_server_serve(server, connfd);
+            http_server_serve(server, connfd, tls_config);
             close(connfd);
             exit(0);
         }
@@ -446,7 +446,7 @@ _http_handler_static(char *base_dir,
     struct stat sbuf;
 
     sprintf(path, "%s/%s", base_dir, req->uri + strlen(uri_prefix));
-    printf("_http_handler_static: path=%s\n", path);
+    // printf("_http_handler_static: path=%s\n", path);
 
     if (stat(path, &sbuf) < 0) {
         http_handler_404(req, res);

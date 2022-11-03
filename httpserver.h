@@ -42,7 +42,7 @@
 #include <openssl/err.h>
 
 // Uncomment this line to enable multiprocess
-// #define MULTIPROCS 1
+#define MULTIPROCS 1
 
 #define MAXMETHOD 10
 #define MAXURI MAXLINE
